@@ -29,18 +29,21 @@ const getIdFilter = (id) => {
 let roomCollection;
 let bookingsCollection;
 
-// Connect to MongoDB once
-client.connect().then(() => {
-  const db = client.db("studynook");
-  roomCollection = db.collection("rooms");
-  bookingsCollection = db.collection("bookings");
-  console.log("Connected to MongoDB!");
-}).catch(console.error);
+async function connectDB() {
+  if (!roomCollection) {
+    await client.connect();
+    const db = client.db("studynook");
+    roomCollection = db.collection("rooms");
+    bookingsCollection = db.collection("bookings");
+    console.log("Connected to MongoDB!");
+  }
+}
 
 // ========== ROOMS ==========
 
 app.post('/rooms', async (req, res) => {
   try {
+    await connectDB();
     const room = req.body;
     const result = await roomCollection.insertOne(room);
     res.json(result);
@@ -51,6 +54,7 @@ app.post('/rooms', async (req, res) => {
 
 app.get("/rooms", async (req, res) => {
   try {
+    await connectDB();
     const { search, minPrice, maxPrice, ownerId } = req.query;
     const query = {};
 
@@ -71,6 +75,7 @@ app.get("/rooms", async (req, res) => {
 
 app.get("/rooms/latest", async (req, res) => {
   try {
+    await connectDB();
     const rooms = await roomCollection
       .find({})
       .sort({ _id: -1 })
@@ -84,6 +89,7 @@ app.get("/rooms/latest", async (req, res) => {
 
 app.get("/rooms/:id", async (req, res) => {
   try {
+    await connectDB();
     const id = req.params.id;
     let room = null;
 
@@ -104,6 +110,7 @@ app.get("/rooms/:id", async (req, res) => {
 
 app.put("/rooms/:id", async (req, res) => {
   try {
+    await connectDB();
     const result = await roomCollection.updateOne(
       getIdFilter(req.params.id),
       { $set: req.body }
@@ -116,6 +123,7 @@ app.put("/rooms/:id", async (req, res) => {
 
 app.delete("/rooms/:id", async (req, res) => {
   try {
+    await connectDB();
     const result = await roomCollection.deleteOne(getIdFilter(req.params.id));
     res.send(result);
   } catch (err) {
@@ -127,6 +135,7 @@ app.delete("/rooms/:id", async (req, res) => {
 
 app.post("/bookings", async (req, res) => {
   try {
+    await connectDB();
     const booking = req.body;
 
     const exists = await bookingsCollection.findOne({
@@ -163,6 +172,7 @@ app.post("/bookings", async (req, res) => {
 
 app.get("/bookings", async (req, res) => {
   try {
+    await connectDB();
     const email = req.query.email;
     const query = email ? { userEmail: email } : {};
     const bookings = await bookingsCollection.find(query).toArray();
@@ -174,6 +184,7 @@ app.get("/bookings", async (req, res) => {
 
 app.get("/bookings/:id", async (req, res) => {
   try {
+    await connectDB();
     const booking = await bookingsCollection.findOne(getIdFilter(req.params.id));
     if (!booking) return res.status(404).send({ message: "Booking not found" });
     res.send(booking);
@@ -184,6 +195,7 @@ app.get("/bookings/:id", async (req, res) => {
 
 app.patch("/bookings/:id/cancel", async (req, res) => {
   try {
+    await connectDB();
     const { userEmail } = req.body;
     const booking = await bookingsCollection.findOne(getIdFilter(req.params.id));
 
@@ -213,6 +225,7 @@ app.patch("/bookings/:id/cancel", async (req, res) => {
 
 app.delete("/bookings/:id", async (req, res) => {
   try {
+    await connectDB();
     const result = await bookingsCollection.deleteOne(getIdFilter(req.params.id));
     res.send(result);
   } catch (err) {
