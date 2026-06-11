@@ -44,13 +44,24 @@ async function run() {
     });
 
     app.get("/rooms", async (req, res) => {
-      try {
-        const rooms = await roomCollection.find().toArray();
-        res.json(rooms);
-      } catch (err) {
-        res.status(500).send({ message: "Failed to fetch rooms" });
-      }
-    });
+  try {
+    const { search, minPrice, maxPrice, ownerId } = req.query;
+    const query = {};
+
+    if (search) query.roomName = { $regex: search, $options: "i" };
+    if (minPrice || maxPrice) {
+      query.hourlyRate = {};
+      if (minPrice) query.hourlyRate.$gte = Number(minPrice);
+      if (maxPrice) query.hourlyRate.$lte = Number(maxPrice);
+    }
+    if (ownerId) query.ownerId = ownerId;
+
+    const rooms = await roomCollection.find(query).toArray();
+    res.json(rooms);
+  } catch (err) {
+    res.status(500).send({ message: "Failed to fetch rooms" });
+  }
+});
 
     app.get("/rooms/latest", async (req, res) => {
       try {
