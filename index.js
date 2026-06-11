@@ -10,7 +10,7 @@ app.use(cors());
 app.use(express.json());
 
 const uri = process.env.MONGODB_URI;
-const PORT = process.env.PORT;
+const PORT = process.env.PORT || 5000;
 
 const client = new MongoClient(uri, {
   serverApi: {
@@ -20,7 +20,6 @@ const client = new MongoClient(uri, {
   }
 });
 
-// Helper to build filter for both ObjectId and plain string IDs
 const getIdFilter = (id) => {
   return (ObjectId.isValid(id) && id.length === 24)
     ? { _id: new ObjectId(id) }
@@ -38,30 +37,34 @@ async function run() {
     // ========== ROOMS ==========
 
     app.post('/rooms', async (req, res) => {
-      const room = req.body;
-      const result = await roomCollection.insertOne(room);
-      res.json(result);
+      try {
+        const room = req.body;
+        const result = await roomCollection.insertOne(room);
+        res.json(result);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to add room" });
+      }
     });
 
     app.get("/rooms", async (req, res) => {
-  try {
-    const { search, minPrice, maxPrice, ownerId } = req.query;
-    const query = {};
+      try {
+        const { search, minPrice, maxPrice, ownerId } = req.query;
+        const query = {};
 
-    if (search) query.roomName = { $regex: search, $options: "i" };
-    if (minPrice || maxPrice) {
-      query.hourlyRate = {};
-      if (minPrice) query.hourlyRate.$gte = Number(minPrice);
-      if (maxPrice) query.hourlyRate.$lte = Number(maxPrice);
-    }
-    if (ownerId) query.ownerId = ownerId;
+        if (search) query.roomName = { $regex: search, $options: "i" };
+        if (minPrice || maxPrice) {
+          query.hourlyRate = {};
+          if (minPrice) query.hourlyRate.$gte = Number(minPrice);
+          if (maxPrice) query.hourlyRate.$lte = Number(maxPrice);
+        }
+        if (ownerId) query.ownerId = ownerId;
 
-    const rooms = await roomCollection.find(query).toArray();
-    res.json(rooms);
-  } catch (err) {
-    res.status(500).send({ message: "Failed to fetch rooms" });
-  }
-});
+        const rooms = await roomCollection.find(query).toArray();
+        res.json(rooms);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to fetch rooms" });
+      }
+    });
 
     app.get("/rooms/latest", async (req, res) => {
       try {
@@ -117,36 +120,42 @@ async function run() {
       }
     });
 
-   
+    // ========== BOOKINGS ==========
 
     app.post("/bookings", async (req, res) => {
-      const booking = req.body;
+      try {
+        const booking = req.body;
 
-      const exists = await bookingsCollection.findOne({
-        roomId: booking.roomId,
-        date: booking.date,
-        status: "confirmed",
-        $or: [
-          {
-            startTime: { $lt: booking.endTime },
-            endTime: { $gt: booking.startTime },
-          },
-        ],
-      });
-      await roomCollection.updateOne(
-        getIdFilter(booking.roomId),
-        { $inc: { bookingCount: 1 } }
-      );
+        const exists = await bookingsCollection.findOne({
+          roomId: booking.roomId,
+          date: booking.date,
+          status: "confirmed",
+          $or: [
+            {
+              startTime: { $lt: booking.endTime },
+              endTime: { $gt: booking.startTime },
+            },
+          ],
+        });
 
-      if (exists) {
-        return res.status(400).send({ message: "Time slot already booked" });
+        if (exists) {
+          return res.status(400).send({ message: "Time slot already booked" });
+        }
+
+        booking.status = "confirmed";
+        booking.createdAt = new Date();
+
+        const result = await bookingsCollection.insertOne(booking);
+
+        await roomCollection.updateOne(
+          getIdFilter(booking.roomId),
+          { $inc: { bookingCount: 1 } }
+        );
+
+        res.send(result);
+      } catch (err) {
+        res.status(500).send({ message: "Failed to create booking" });
       }
-
-      booking.status = "confirmed";
-      booking.createdAt = new Date();
-
-      const result = await bookingsCollection.insertOne(booking);
-      res.send(result);
     });
 
     app.get("/bookings", async (req, res) => {
@@ -171,34 +180,33 @@ async function run() {
     });
 
     app.patch("/bookings/:id/cancel", async (req, res) => {
-  try {
-    const { userEmail } = req.body;
-    const booking = await bookingsCollection.findOne(getIdFilter(req.params.id));
+      try {
+        const { userEmail } = req.body;
+        const booking = await bookingsCollection.findOne(getIdFilter(req.params.id));
 
-    if (!booking) {
-      return res.status(404).send({ message: "Booking not found" });
-    }
+        if (!booking) {
+          return res.status(404).send({ message: "Booking not found" });
+        }
 
-    if (booking.userEmail !== userEmail) {
-      return res.status(403).send({ message: "Unauthorized" });
-    }
+        if (booking.userEmail !== userEmail) {
+          return res.status(403).send({ message: "Unauthorized" });
+        }
 
-    await bookingsCollection.updateOne(
-      getIdFilter(req.params.id),
-      { $set: { status: "cancelled" } }
-    );
+        await bookingsCollection.updateOne(
+          getIdFilter(req.params.id),
+          { $set: { status: "cancelled" } }
+        );
 
-    // Decrement bookingCount on the room
-    await roomCollection.updateOne(
-      getIdFilter(booking.roomId),
-      { $inc: { bookingCount: -1 } }
-    );
+        await roomCollection.updateOne(
+          getIdFilter(booking.roomId),
+          { $inc: { bookingCount: -1 } }
+        );
 
-    res.send({ message: "Booking cancelled successfully" });
-  } catch (err) {
-    res.status(500).send({ message: "Failed to cancel booking" });
-  }
-});
+        res.send({ message: "Booking cancelled successfully" });
+      } catch (err) {
+        res.status(500).send({ message: "Failed to cancel booking" });
+      }
+    });
 
     app.delete("/bookings/:id", async (req, res) => {
       try {
@@ -209,7 +217,6 @@ async function run() {
       }
     });
 
-    // await client.db("admin").command({ ping: 1 });
     console.log("Successfully connected to MongoDB!");
 
   } catch (err) {
@@ -221,6 +228,10 @@ run().catch(console.dir);
 
 app.get('/', (req, res) => {
   res.send('Hello World');
+});
+
+app.listen(PORT, () => {
+  console.log(`Server is running on port ${PORT}`);
 });
 
 module.exports = app;
